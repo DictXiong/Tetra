@@ -136,7 +136,8 @@ class CloudflareClient:
                             network_name = basename.split('-v')[0]
                             ans.append(DNSRecord(f"{network_name}.{self.domain}", RecordType.CNAME, f"{basename}{ZONE_SUFFIX[current_zone]}.{self.domain}", TTL_NET))
                     else:
-                        ans.append(DNSRecord(f"{basename}.{self.domain}", RecordType.CNAME, f"{name}.0.{self.domain}", TTL_NET))
+                        current_zone = mid_name.get('current_zone', 0)
+                        ans.append(DNSRecord(f"{basename}.{self.domain}", RecordType.CNAME, f"{name}.{current_zone}.{self.domain}", TTL_NET))
         # validate
         names = [record.name for record in ans]
         for record in ans:
