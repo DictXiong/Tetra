@@ -51,7 +51,10 @@ class DNSRecord:
         self.id = id
 
     def __str__(self):
-        return f'{self.name:28}. {self.ttl:5}  IN  {self.type:5} {self.content:39}'
+        standard_name = self.name
+        if not standard_name.endswith('.'):
+            standard_name += '.'
+        return f'{standard_name:29} {self.ttl:5}  IN  {self.type:5} {self.content:39}'
 
     def __eq__(self, __value: object) -> bool:
         if not isinstance(__value, DNSRecord):
