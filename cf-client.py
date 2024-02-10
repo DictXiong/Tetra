@@ -77,7 +77,7 @@ class CloudflareClient:
         logging.info(f"Getting zone ID for {domain}")
         try:
             zones = self.cf.zones.get(params={'name': domain})
-        except CloudFlare.exceptions.CloudFlareAPIError as e:
+        except Exception as e:
             exit(f'Error: {e}')
         if len(zones) != 1:
             exit(f'Error: {len(zones)} zones found for {domain}')
@@ -93,10 +93,8 @@ class CloudflareClient:
         """
         ans = []
         for host in self.config['hosts']:
-            has_ext = False
-            has_ip4 = False
-            has_ip6 = False
             name = host['name']
+            enabled_zones = set()
             ext_records = []
             if 'addresses' in host:
                 if isinstance(host['addresses'], str):
@@ -106,8 +104,9 @@ class CloudflareClient:
                         tmp = ipaddress.ip_address(address)
                     except ValueError:
                         exit(f'Error: {address} is not a valid IP address')
+                    enabled_zones.add(0)
                     if tmp.version == 4:
-                        has_ip4 = True
+                        enabled_zones.add(4)
                         ans.append(
                             DNSRecord(f"{name}.0.{self.domain}", RecordType.A, address, TTL_HOST))
                         ext_records.append(
@@ -115,7 +114,7 @@ class CloudflareClient:
                         ans.append(
                             DNSRecord(f"{name}.4.{self.domain}", RecordType.A, address, TTL_HOST))
                     else:
-                        has_ip6 = True
+                        enabled_zones.add(6)
                         ans.append(
                             DNSRecord(f"{name}.0.{self.domain}", RecordType.AAAA, address, TTL_HOST))
                         ext_records.append(
@@ -132,15 +131,15 @@ class CloudflareClient:
                         tmp = ipaddress.ip_address(address)
                     except ValueError:
                         exit(f'Error: {address} is not a valid IP address')
-                    has_ext = True
+                    enabled_zones.add(1)
                     if tmp.version == 4:
-                        has_ip4 = True
+                        enabled_zones.add(4)
                         ans.append(
-                            DNSRecord(f"{name}.1.{self.domain}", RecordType.AAAA, address, TTL_EXT))
+                            DNSRecord(f"{name}.1.{self.domain}", RecordType.A, address, TTL_EXT))
                         ans.append(
                             DNSRecord(f"{name}.4.{self.domain}", RecordType.A, address, TTL_EXT))
                     else:
-                        has_ip6 = True
+                        enabled_zones.add(6)
                         ans.append(
                             DNSRecord(f"{name}.1.{self.domain}", RecordType.AAAA, address, TTL_EXT))
                         ans.append(
@@ -153,17 +152,9 @@ class CloudflareClient:
                         mid_name = {'name': mid_name, 'current': False}
                     basename = mid_name['name']
                     if '-v' in basename:
-                        ans.append(DNSRecord(
-                            f"{basename}.{self.domain}", RecordType.CNAME, f"{name}.0.{self.domain}", TTL_PREST))
-                        if has_ext:
+                        for zone in enabled_zones:
                             ans.append(DNSRecord(
-                                f"{basename}-ext.{self.domain}", RecordType.CNAME, f"{name}.1.{self.domain}", TTL_PREST))
-                        if has_ip4:
-                            ans.append(DNSRecord(
-                                f"{basename}-ip4.{self.domain}", RecordType.CNAME, f"{name}.4.{self.domain}", TTL_PREST))
-                        if has_ip6:
-                            ans.append(DNSRecord(
-                                f"{basename}-ip6.{self.domain}", RecordType.CNAME, f"{name}.6.{self.domain}", TTL_PREST))
+                                f"{basename}{ZONE_SUFFIX[zone]}.{self.domain}", RecordType.CNAME, f"{name}.{zone}.{self.domain}", TTL_PREST))
                         if mid_name.get('current', False):
                             current_zone = mid_name.get('current_zone', 0)
                             network_name = basename.split('-v')[0]
@@ -191,19 +182,12 @@ class CloudflareClient:
         """
         try:
             dns_records = self.cf.zones.dns_records.get(self.zone_id)
-        except CloudFlare.exceptions.CloudFlareAPIError as e:
+        except Exception as e:
             exit(f'Error: {e}')
         cf_records = []
         for record in dns_records:
             if record['comment'] and COMMENT_PREFIX in record['comment']:
-                if record['type'] == 'A':
-                    type = RecordType.A
-                elif record['type'] == 'AAAA':
-                    type = RecordType.AAAA
-                elif record['type'] == 'CNAME':
-                    type = RecordType.CNAME
-                else:
-                    exit(f'Error: {record["type"]} is not a valid record type')
+                type = RecordType(record['type'])
                 cf_records.append(DNSRecord(
                     record['name'], type, record['content'], record['ttl'], record['comment'], record['id']))
         return cf_records
@@ -276,20 +260,20 @@ class CloudflareClient:
                 try:
                     self.cf.zones.dns_records.put(self.zone_id, record.id, data={'name': record.name, 'type': str(
                         record.type), 'content': record.content, 'ttl': record.ttl, 'comment': record.comment, 'proxied': False})
-                except CloudFlare.exceptions.CloudFlareAPIError as e:
+                except Exception as e:
                     exit(f'Error: {e}')
                 pbar.update(1)
             for record in deleting_records:
                 try:
                     self.cf.zones.dns_records.delete(self.zone_id, record.id)
-                except CloudFlare.exceptions.CloudFlareAPIError as e:
+                except Exception as e:
                     exit(f'Error: {e}')
                 pbar.update(1)
             for record in adding_records:
                 try:
                     self.cf.zones.dns_records.post(self.zone_id, data={'name': record.name, 'type': str(
                         record.type), 'content': record.content, 'ttl': record.ttl, 'comment': record.comment, 'proxied': False})
-                except CloudFlare.exceptions.CloudFlareAPIError as e:
+                except Exception as e:
                     exit(f'Error: {e}')
                 pbar.update(1)
 
