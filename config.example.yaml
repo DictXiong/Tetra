@@ -1,6 +1,5 @@
 example.com:
   token: "your_token"
-  zone_id: "your_zone_id"
   hosts:
     - name: "your_host_name_v0"  # (str) hostname
       addresses: ["your_host_ip4", "your_host_ip6"]  # (list|str) addresses
