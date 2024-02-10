@@ -1,0 +1,11 @@
+example.com:
+  token: "your_token"
+  zone_id: "your_zone_id"
+  hosts:
+    - name: "your_host_name_v0"  # (str) hostname
+      addresses: ["your_host_ip4", "your_host_ip6"]  # (list|str) addresses
+      ext_addresses: ["your_host_ext_ip4", "your_host_ext_ip6"]  # (list|str) extended addresses, e.g., proxied or tunnelled addresses
+      mid_names:  # (list[dict]|list[str]|str) middle-layer name/names. if str, assuming current = false.
+        - name: "the_name"  # (str) middle-layer name. if ends with "-v...", it will be treated as a normal presentation and converted to multiple varied presentations (e.g., "cn0-v0" -> "cn0-v0", "cn0-v0-ext", "cn0-v0-ip4", "cn0-v0-ip6"). otherwise, it will be treated as a network name without any variation.
+          current: true  # only when presentation name ends with "-v...", it will be treated as a current presentation, e.g., "cn0-v0" -> "cn0".
+          current_zone: 0  # this defines which variation is used, e.g., setting 4 will use "cn0-v0-ip4" or "xxxxx.0" as the current presentation.
