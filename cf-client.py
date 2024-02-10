@@ -54,9 +54,16 @@ class DNSRecord:
         return f'{self.name:28} IN {self.type:5} {self.content:39} {self.ttl}'
 
     def __eq__(self, __value: object) -> bool:
+        if not isinstance(__value, DNSRecord):
+            return False
         return self.name == __value.name and self.type == __value.type and self.content == __value.content and self.ttl == __value.ttl
 
     def sims(self, __value: object) -> bool:
+        """
+        Check if the given value is a DNSRecord object and has the same name and type as self.
+        """
+        if not isinstance(__value, DNSRecord):
+            return False
         return self.name == __value.name and self.type == __value.type
 
 
@@ -78,6 +85,12 @@ class CloudflareClient:
         logging.info("Initialization done")
 
     def parse_hosts(self):
+        """
+        Parses the hosts configuration and generates DNS records based on the configuration.
+
+        Returns:
+            list: A list of DNSRecord objects representing the generated DNS records.
+        """
         ans = []
         for host in self.config['hosts']:
             has_ext = False
@@ -170,6 +183,12 @@ class CloudflareClient:
         return ans
 
     def get_cf_records(self) -> list:
+        """
+        Retrieves Cloudflare DNS records for a specific zone.
+
+        Returns:
+            list: List of DNSRecord objects representing the Cloudflare DNS records.
+        """
         try:
             dns_records = self.cf.zones.dns_records.get(self.zone_id)
         except CloudFlare.exceptions.CloudFlareAPIError as e:
@@ -190,6 +209,15 @@ class CloudflareClient:
         return cf_records
 
     def update_dns(self, records):
+        """
+        Update DNS records in Cloudflare.
+
+        Args:
+            records (list): List of DNS records to be updated.
+
+        Returns:
+            None
+        """
         pending_records = [i for i in records]
         cf_records = self.get_cf_records()
         # identical records
