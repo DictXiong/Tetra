@@ -1,2 +1,5 @@
 cloudflare
 tqdm
+pyyaml
+dnspython
+tencentcloud-sdk-python
