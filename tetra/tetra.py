@@ -9,9 +9,10 @@ import ipaddress
 from dnsutils import DNSRecord, RecordType, resolve_name_to_template, cross_compare
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
-parser = argparse.ArgumentParser(description='Cloudflare API client')
+parser = argparse.ArgumentParser(description='Tetra DNS Record Manager')
 parser.add_argument('--config', help='Path to the configuration file',
                     default=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.yaml'))
+parser.add_argument('-d', '--domain', help='Domain to update (all in default)', default=None, action='append')
 parser.add_argument('-D', '--dry-run',
                     help='Do not make any changes', action='store_true')
 parser.add_argument('-f', '--force', help='Force update', action='store_true')
@@ -22,7 +23,7 @@ TTL_HOST = 43200
 TTL_PREST = 86400
 TTL_EXT = 1  # 1 means auto
 TTL_NET = 1
-TTL_L4 = 600
+TTL_TOP = 600
 COMMENT_PREFIX_BOTTOM = 'TETRAB'
 COMMENT_PREFIX_TOP = 'TETRAT'
 COMMENT_SUFFIX = f' {time.strftime("%Y-%m-%d %H:%M:%S")}'
@@ -43,7 +44,7 @@ class Tetra:
         self.comment = COMMENT_B if self.is_bottom else COMMENT_T
         self.domain = domain
         self.config = config
-        logging.warning(f"Initializing Tetra for {domain} in {'bottom' if self.is_bottom else 'top'} layer")
+        logging.warning(f"Initializing Tetra for [{domain}] in [{'bottom' if self.is_bottom else 'top'}] layer ({self.comment})")
         if config['backend'] == 'cloudflare':
             from backends.cloudflare import CloudflareClient
             self.backend = CloudflareClient(domain, config['auth'], self.prefix)
@@ -153,12 +154,12 @@ class Tetra:
                 except ValueError:
                     type = RecordType.CNAME
                 for i in name['names']:
-                    ans.append(DNSRecord(i, type, value, TTL_L4, record.get('line', '默认'), self.comment))
+                    ans.append(DNSRecord(i, type, value, TTL_TOP, record.get('line', '默认'), self.comment))
             cnamed_by = name.get('cnames', [])
             if isinstance(cnamed_by, str):
                 cnamed_by = [cnamed_by]
             for cname in cnamed_by:
-                ans.append(DNSRecord(cname, RecordType.CNAME, f"{name['names'][0]}.{self.domain}.", TTL_L4, '默认', self.comment))
+                ans.append(DNSRecord(cname, RecordType.CNAME, f"{name['names'][0]}.{self.domain}.", TTL_TOP, '默认', self.comment))
 
         # flatten cname on root
         root_cname = []
@@ -215,5 +216,9 @@ if __name__ == "__main__":
     logging.warning(f'Tetra DNS Client Started')
     with open(args.config, 'r') as file:
         config_file = yaml.safe_load(file)
-    for domain,config in config_file.items():
-        Tetra(domain, config).run()
+    if args.domain:
+        for domain in args.domain:
+            Tetra(domain, config_file[domain]).run()
+    else:
+        for domain,config in config_file.items():
+            Tetra(domain, config).run()
