@@ -6,7 +6,7 @@ import time
 import logging
 import argparse
 import ipaddress
-from dnsutils import DNSRecord, RecordType, resolve_name_to_template, cross_compare
+from dnsutils import DNSRecord, RecordType, resolve_name_to_template, cross_compare, assert_cname_unique
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 parser = argparse.ArgumentParser(description='Tetra DNS Record Manager')
@@ -93,16 +93,12 @@ class Tetra:
                     enabled_zones.add(1)
                     if tmp.version == 4:
                         enabled_zones.add(4)
-                        ans.append(
-                            DNSRecord(f"{name}.1", RecordType.A, address, TTL_EXT, comment=self.comment))
-                        ans.append(
-                            DNSRecord(f"{name}.4", RecordType.A, address, TTL_EXT, comment=self.comment))
+                        ans.append(DNSRecord(f"{name}.1", RecordType.A, address, TTL_EXT, comment=self.comment))
+                        ans.append(DNSRecord(f"{name}.4", RecordType.A, address, TTL_EXT, comment=self.comment))
                     else:
                         enabled_zones.add(6)
-                        ans.append(
-                            DNSRecord(f"{name}.1", RecordType.AAAA, address, TTL_EXT, comment=self.comment))
-                        ans.append(
-                            DNSRecord(f"{name}.6", RecordType.AAAA, address, TTL_EXT, comment=self.comment))
+                        ans.append(DNSRecord(f"{name}.1", RecordType.AAAA, address, TTL_EXT, comment=self.comment))
+                        ans.append(DNSRecord(f"{name}.6", RecordType.AAAA, address, TTL_EXT, comment=self.comment))
             if 'mid_names' in host:
                 if isinstance(host['mid_names'], str):
                     host['mid_names'] = [host['mid_names']]
@@ -112,25 +108,20 @@ class Tetra:
                     basename = mid_name['name']
                     if '-v' in basename:
                         for zone in enabled_zones:
-                            ans.append(DNSRecord(
-                                f"{basename}{ZONE_SUFFIX[zone]}", RecordType.CNAME, f"{name}.{zone}.{self.domain}.", TTL_PREST, comment=self.comment))
+                            ans.append(DNSRecord(f"{basename}{ZONE_SUFFIX[zone]}", RecordType.CNAME, f"{name}.{zone}.{self.domain}.", TTL_PREST, comment=self.comment))
                         if mid_name.get('current', False):
                             current_zone = mid_name.get('current_zone', 0)
                             network_name = basename.split('-v')[0]
                             ans.append(DNSRecord(f"{network_name}", RecordType.CNAME,f"{basename}{ZONE_SUFFIX[current_zone]}.{self.domain}.", TTL_NET, comment=self.comment))
                     else:
                         current_zone = mid_name.get('current_zone', 0)
-                        ans.append(DNSRecord(
-                            f"{basename}", RecordType.CNAME, f"{name}.{current_zone}.{self.domain}.", TTL_NET, comment=self.comment))
-        # validate
-        names = [record.name for record in ans]
-        for record in ans:
-            if record.type == RecordType.CNAME:
-                assert len([i for i in names if i == record.name]) == 1, f"Error: {record.name} is not unique"
+                        ans.append(DNSRecord(f"{basename}", RecordType.CNAME, f"{name}.{current_zone}.{self.domain}.", TTL_NET, comment=self.comment))
         # add tailing dot for cname
         for record in ans:
             if record.type == RecordType.CNAME and not record.content.endswith('.'):
                 record.content += '.'
+        # validate
+        assert_cname_unique(ans)
         for i in ans:
             i.assert_valid()
         return ans
@@ -176,6 +167,8 @@ class Tetra:
         for record in ans:
             if record.type == RecordType.CNAME and not record.content.endswith('.'):
                 record.content += '.'
+        # validate
+        assert_cname_unique(ans)
         for i in ans:
             i.assert_valid()
         return ans
