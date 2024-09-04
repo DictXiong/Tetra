@@ -21,7 +21,7 @@ logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO, forma
 
 
 TTL_HOST = 43200
-TTL_PREST = 86400
+TTL_PERMA = 86400
 TTL_EXT = 1  # 1 means auto
 TTL_NET = 1
 TTL_TOP = 600
@@ -37,8 +37,12 @@ ZONE_SUFFIX = {
     6: '-ip6'
 }
 def get_zone_suffix(zone:int):
-    if zone in ZONE_SUFFIX: return ZONE_SUFFIX[zone]
-    else: return f"-{zone}"
+    if zone in ZONE_SUFFIX:
+        return ZONE_SUFFIX[zone]
+    elif zone >= 10:
+        return f"-z{zone}"
+    else:
+        raise ValueError(f"Invalid zone {zone}")
 
 
 class Tetra:
@@ -67,10 +71,13 @@ class Tetra:
                 if isinstance(host['addresses'], list):
                     host['addresses'] = {0:host['addresses']}
                 for zone,addresses in host['addresses'].items():
+                    if addresses is None:
+                        records[zone] = []
+                        continue
                     if isinstance(addresses, str):
                         addresses = [addresses]
                     if zone < 10 and zone not in [0,1]:
-                        logging.warning(f"special zone {zone} should not be set manually for name {name}")
+                        logging.fatal(f"special zone {zone} should not be set manually for name {name}")
                     ttl = TTL_HOST if zone == 0 else TTL_EXT
                     for address in addresses:
                         try: tmp = ipaddress.ip_address(address)
@@ -92,7 +99,7 @@ class Tetra:
                                 records[z].append(
                                     DNSRecord(f"{name}.{z}", RecordType.AAAA, address, ttl, comment=self.comment)
                                 )
-            if 0 in records and 1 in records and len(records[0]) == len(records[1]):
+            if 0 in records and 1 in records and len(records[0]) == len(records[1]) != 0:
                 del records[1]
             for record in records.values():
                 ans += record
@@ -103,20 +110,21 @@ class Tetra:
                     if isinstance(mid_name, str):
                         mid_name = {'name': mid_name, 'current': False}
                     basename = mid_name['name']
-                    if '-v' in basename:
-                        for zone in records:
-                            ans.append(
-                                DNSRecord(f"{basename}{get_zone_suffix(zone)}", RecordType.CNAME, f"{name}.{zone}.{self.domain}.", TTL_PREST, comment=self.comment)
-                            )
-                        if mid_name.get('current', False):
-                            current_zone = mid_name.get('current_zone', 0)
-                            network_name = basename.split('-v')[0]
-                            ans.append(
-                                DNSRecord(f"{network_name}", RecordType.CNAME,f"{basename}{get_zone_suffix(current_zone)}.{self.domain}.", TTL_NET, comment=self.comment)
-                            )
-                    else:
+                    for zone in records:
+                        ans.append(
+                            DNSRecord(f"{basename}{get_zone_suffix(zone)}", RecordType.CNAME, f"{name}.{zone}.{self.domain}.", TTL_PERMA if '-v' in basename else TTL_NET, comment=self.comment)
+                        )
+                    if '-v' in basename and mid_name.get('current', False):
                         current_zone = mid_name.get('current_zone', 0)
-                        ans.append(DNSRecord(f"{basename}", RecordType.CNAME, f"{name}.{current_zone}.{self.domain}.", TTL_NET, comment=self.comment))
+                        network_name = basename.split('-v')[0]
+                        ans.append(
+                            DNSRecord(f"{network_name}", RecordType.CNAME,f"{basename}{get_zone_suffix(current_zone)}.{self.domain}.", TTL_NET, comment=self.comment)
+                        )
+                        for zone in records:
+                            if zone == 0: continue
+                            ans.append(
+                                DNSRecord(f"{network_name}{get_zone_suffix(zone)}", RecordType.CNAME, f"{name}.{zone}.{self.domain}.", TTL_NET, comment=self.comment)
+                            )
         # add tailing dot for cname
         for record in ans:
             if record.type == RecordType.CNAME and not record.content.endswith('.'):
@@ -128,6 +136,7 @@ class Tetra:
         return ans
 
     def _parse_top_records(self):
+        bottom = self.config.get('bottom', '')
         ans = []
         for name in self.config['domains']:
             if not isinstance(name['records'], list):
@@ -143,15 +152,18 @@ class Tetra:
                         type = RecordType.A
                     else:
                         type = RecordType.AAAA
+                    logging.warning(f"Warning: {value} is an IP address, use CNAME instead")
                 except ValueError:
                     type = RecordType.CNAME
+                    if not value.endswith('.') and not value.endswith(bottom):
+                        value += f'.{bottom}'
                 for i in name['names']:
-                    ans.append(DNSRecord(i, type, value, TTL_TOP, record.get('line', '默认'), self.comment))
+                    ans.append(DNSRecord(i, type, value, TTL_TOP, record.get('line', None), self.comment))
             cnamed_by = name.get('cnames', [])
             if isinstance(cnamed_by, str):
                 cnamed_by = [cnamed_by]
             for cname in cnamed_by:
-                ans.append(DNSRecord(cname, RecordType.CNAME, f"{name['names'][0]}.{self.domain}.", TTL_TOP, '默认', self.comment))
+                ans.append(DNSRecord(cname, RecordType.CNAME, f"{name['names'][0]}.{self.domain}.", TTL_TOP, None, self.comment))
 
         # flatten cname on root
         root_cname = []

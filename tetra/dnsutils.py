@@ -91,8 +91,8 @@ def cross_compare(old_records: list[DNSRecord], pending_records: list[DNSRecord]
                 old_records.remove(i)
                 break
     # staging
-    adding_records = [i for i in pending_records if i.id == None]
-    updating_records = [i for i in pending_records if i.id != None]
+    adding_records = [i for i in pending_records if i.id is None]
+    updating_records = [i for i in pending_records if i.id is not None]
     deleting_records = [i for i in old_records]
     return adding_records,updating_records,deleting_records
 

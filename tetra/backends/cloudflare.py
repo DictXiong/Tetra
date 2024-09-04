@@ -42,13 +42,13 @@ class CloudflareClient:
         op_counts = len(adding) + len(updating) + len(deleting)
         with tqdm(total=op_counts) as pbar:
             for record in updating:
-                assert record.line == None, "Cloudflare doesn't support line"
+                assert record.line is None, "Cloudflare doesn't support line"
                 self.cf.zones.dns_records.put(self.zone_id, record.id, data={'name': record.name, 'type': str(record.type), 'content': record.content, 'ttl': record.ttl, 'comment': record.comment, 'proxied': False})
                 pbar.update(1)
             for record in deleting:
                 self.cf.zones.dns_records.delete(self.zone_id, record.id)
                 pbar.update(1)
             for record in adding:
-                assert record.line == None, "Cloudflare doesn't support line"
+                assert record.line is None, "Cloudflare doesn't support line"
                 self.cf.zones.dns_records.post(self.zone_id, data={'name': record.name, 'type': str(record.type), 'content': record.content, 'ttl': record.ttl, 'comment': record.comment, 'proxied': False})
                 pbar.update(1)

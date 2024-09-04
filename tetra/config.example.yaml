@@ -8,6 +8,7 @@ example.com:
       addresses:  # (optional[dict|list|str]) addresses. if str or list, assuming zone = 0
         0: ["your_host_ip4", "your_host_ip6"]  # zone 0: native addresses
         1: ["your_tunnel_ip4", "your_tunnel_ip6"]  # zone 1: proxied or tunnel addresses
+        10: ~  # zone 10: managed by other means such as ddns
         42: ["your_other_addr"]  # zones id > 9 are custom zones.
       mid_names:  # (list[dict]|list[str]|str) middle-layer name/names. if str, assuming current = false.
         - name: "the_name"  # (str) middle-layer name. if ends with "-v...", it will be treated as a normal presentation name and converted to multiple varied presentations (e.g., "cn0-v0" -> [ "cn0-v0", "cn0-v0-ext", "cn0-v0-ip4", "cn0-v0-ip6", "cn0-v0-42"]). otherwise, it will be treated as a network name without any variation.
@@ -16,6 +17,7 @@ example.com:
 
 example.net:
   layer: "top"
+  bottom: "example.com"  # (optional[str]) bottom-layer domain name. all records not ending with a dot will be appended with this domain name.
   backend: "dnspod"
   auth:
     secret_id: "your_secret_id"

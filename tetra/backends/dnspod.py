@@ -23,7 +23,7 @@ class DNSPodClient:
             if record.Remark and self.prefix in record.Remark:
                 type = RecordType(record.Type)
                 ans.append(DNSRecord(
-                    record.Name, type, record.Value, record.TTL, record.Line, record.Remark, record.RecordId))
+                    record.Name, type, record.Value, record.TTL, None if record.Line == '默认' else record.Line, record.Remark, record.RecordId))
         for i in ans:
             i.assert_valid()
         return ans
@@ -38,7 +38,7 @@ class DNSPodClient:
                 request.RecordId = record.id
                 request.SubDomain = record.name
                 request.RecordType = str(record.type)
-                request.RecordLine = record.line
+                request.RecordLine = '默认' if record.line is None else record.line
                 request.Value = record.content
                 request.TTL = record.ttl
                 request.Remark = record.comment
@@ -57,7 +57,7 @@ class DNSPodClient:
                 request.Domain = self.domain
                 request.SubDomain = record.name
                 request.RecordType = str(record.type)
-                request.RecordLine = record.line
+                request.RecordLine = '默认' if record.line is None else record.line
                 request.Value = record.content
                 request.TTL = record.ttl
                 request.Remark = record.comment
