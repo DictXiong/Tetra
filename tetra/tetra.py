@@ -8,7 +8,6 @@ import argparse
 import ipaddress
 from dnsutils import DNSRecord, RecordType, resolve_name_to_template, cross_compare, assert_cname_unique
 
-logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 parser = argparse.ArgumentParser(description='Tetra DNS Record Manager')
 parser.add_argument('--config', help='Path to the configuration file',
                     default=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.yaml'))
@@ -16,7 +15,9 @@ parser.add_argument('-d', '--domain', help='Domain to update (all in default)', 
 parser.add_argument('-D', '--dry-run',
                     help='Do not make any changes', action='store_true')
 parser.add_argument('-f', '--force', help='Force update', action='store_true')
+parser.add_argument('-v', '--verbose', help='Show more log', action='store_true')
 args = parser.parse_args()
+logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO, format='%(levelname)s: %(message)s')
 
 
 TTL_HOST = 43200

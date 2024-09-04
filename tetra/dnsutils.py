@@ -19,7 +19,10 @@ class DNSRecord:
     def __init__(self, name, type, content, ttl, line=None, comment=None, id=None) -> None:
         self.name = name
         self.type = type
-        self.content = content
+        if self.type == RecordType.AAAA:
+            self.content = str(ipaddress.ip_address(content))
+        else:
+            self.content = content
         self.ttl = ttl
         self.line = line
         self.comment = comment
@@ -51,12 +54,12 @@ class DNSRecord:
 
     def __eq__(self, __value: object) -> bool:
         if not isinstance(__value, DNSRecord):
-            return False
+            raise ValueError(f"type {type(self)} could not be compared with {type(__value)}")
         return self.name == __value.name and self.type == __value.type and self.content == __value.content and self.ttl == __value.ttl and self.line == __value.line
 
     def sims(self, __value: object) -> bool:
         if not isinstance(__value, DNSRecord):
-            return False
+            raise ValueError(f"type {type(self)} could not be compared with {type(__value)}")
         return self.name == __value.name and self.type == __value.type
 
 
