@@ -86,6 +86,7 @@ def cross_compare(old_records: list[DNSRecord], pending_records: list[DNSRecord]
             if record.sims(i):
                 logging.debug(
                     f"Updating '{record.name}' from '{i.content}' ({type(i.content)}) to '{record.content}' ({type(record.content)})")
+                logging.debug(f"diff: content={record.content==i.content} ttl={record.ttl==i.ttl} line={record.line==i.line}")
                 record.id = i.id
                 old_records.remove(i)
                 break
@@ -117,3 +118,12 @@ def assert_cname_unique(records: list[DNSRecord]):
             for j in records:
                 if i.name == j.name and i.line == j.line and i != j:
                     raise ValueError(f"Duplicate CNAME record {i.summary()} {j.summary()}")
+
+def check_name_exist(domain: str):
+    resolver = dns.resolver.Resolver()
+    try: resolver.resolve_name(domain)
+    except dns.resolver.NXDOMAIN:
+        return False
+    except Exception as e:
+        logging.warning(f"an error occured when quering {domain}")
+    return True

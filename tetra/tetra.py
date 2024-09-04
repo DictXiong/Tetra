@@ -6,7 +6,7 @@ import time
 import logging
 import argparse
 import ipaddress
-from dnsutils import DNSRecord, RecordType, resolve_name_to_template, cross_compare, assert_cname_unique
+from dnsutils import DNSRecord, RecordType, resolve_name_to_template, cross_compare, assert_cname_unique, check_name_exist
 
 parser = argparse.ArgumentParser(description='Tetra DNS Record Manager')
 parser.add_argument('--config', help='Path to the configuration file',
@@ -36,6 +36,9 @@ ZONE_SUFFIX = {
     4: '-ip4',
     6: '-ip6'
 }
+def get_zone_suffix(zone:int):
+    if zone in ZONE_SUFFIX: return ZONE_SUFFIX[zone]
+    else: return f"-{zone}"
 
 
 class Tetra:
@@ -57,49 +60,42 @@ class Tetra:
         ans = []
         for host in self.config['hosts']:
             name = host['name']
-            enabled_zones = set()
-            ext_records = []
+            records = {}
             if 'addresses' in host:
                 if isinstance(host['addresses'], str):
                     host['addresses'] = [host['addresses']]
-                for address in host['addresses']:
-                    try:
-                        tmp = ipaddress.ip_address(address)
-                    except ValueError:
-                        exit(f'Error: {address} is not a valid IP address')
-                    enabled_zones.add(0)
-                    if tmp.version == 4:
-                        enabled_zones.add(4)
-                        ans.append(
-                            DNSRecord(f"{name}.0", RecordType.A, address, TTL_HOST, comment=self.comment))
-                        ext_records.append(
-                            DNSRecord(f"{name}.1", RecordType.A, address, TTL_HOST, comment=self.comment))
-                        ans.append(
-                            DNSRecord(f"{name}.4", RecordType.A, address, TTL_HOST, comment=self.comment))
-                    else:
-                        enabled_zones.add(6)
-                        ans.append(
-                            DNSRecord(f"{name}.0", RecordType.AAAA, address, TTL_HOST, comment=self.comment))
-                        ext_records.append(
-                            DNSRecord(f"{name}.1", RecordType.AAAA, address, TTL_HOST, comment=self.comment))
-                        ans.append(
-                            DNSRecord(f"{name}.6", RecordType.AAAA, address, TTL_HOST, comment=self.comment))
-            if 'ext_addresses' in host:
-                if isinstance(host['ext_addresses'], str):
-                    host['ext_addresses'] = [host['ext_addresses']]
-                if host['ext_addresses']:
-                    ans += ext_records
-                for address in host['ext_addresses']:
-                    tmp = ipaddress.ip_address(address)
-                    enabled_zones.add(1)
-                    if tmp.version == 4:
-                        enabled_zones.add(4)
-                        ans.append(DNSRecord(f"{name}.1", RecordType.A, address, TTL_EXT, comment=self.comment))
-                        ans.append(DNSRecord(f"{name}.4", RecordType.A, address, TTL_EXT, comment=self.comment))
-                    else:
-                        enabled_zones.add(6)
-                        ans.append(DNSRecord(f"{name}.1", RecordType.AAAA, address, TTL_EXT, comment=self.comment))
-                        ans.append(DNSRecord(f"{name}.6", RecordType.AAAA, address, TTL_EXT, comment=self.comment))
+                if isinstance(host['addresses'], list):
+                    host['addresses'] = {0:host['addresses']}
+                for zone,addresses in host['addresses'].items():
+                    if isinstance(addresses, str):
+                        addresses = [addresses]
+                    if zone < 10 and zone not in [0,1]:
+                        logging.warning(f"special zone {zone} should not be set manually for name {name}")
+                    ttl = TTL_HOST if zone == 0 else TTL_EXT
+                    for address in addresses:
+                        try: tmp = ipaddress.ip_address(address)
+                        except ValueError: exit(f'Error: {address} is not a valid IP address')
+                        zones = [zone]
+                        if tmp.version == 4:
+                            if zone == 0: zones += [1,4]
+                            elif zone == 1: zones += [4]
+                            for z in zones:
+                                if z not in records: records[z] = []
+                                records[z].append(
+                                    DNSRecord(f"{name}.{z}", RecordType.A, address, ttl, comment=self.comment)
+                                )
+                        else:
+                            if zone == 0: zones += [1,6]
+                            elif zone == 1: zones += [6]
+                            for z in zones:
+                                if z not in records: records[z] = []
+                                records[z].append(
+                                    DNSRecord(f"{name}.{z}", RecordType.AAAA, address, ttl, comment=self.comment)
+                                )
+            if 0 in records and 1 in records and len(records[0]) == len(records[1]):
+                del records[1]
+            for record in records.values():
+                ans += record
             if 'mid_names' in host:
                 if isinstance(host['mid_names'], str):
                     host['mid_names'] = [host['mid_names']]
@@ -108,12 +104,16 @@ class Tetra:
                         mid_name = {'name': mid_name, 'current': False}
                     basename = mid_name['name']
                     if '-v' in basename:
-                        for zone in enabled_zones:
-                            ans.append(DNSRecord(f"{basename}{ZONE_SUFFIX[zone]}", RecordType.CNAME, f"{name}.{zone}.{self.domain}.", TTL_PREST, comment=self.comment))
+                        for zone in records:
+                            ans.append(
+                                DNSRecord(f"{basename}{get_zone_suffix(zone)}", RecordType.CNAME, f"{name}.{zone}.{self.domain}.", TTL_PREST, comment=self.comment)
+                            )
                         if mid_name.get('current', False):
                             current_zone = mid_name.get('current_zone', 0)
                             network_name = basename.split('-v')[0]
-                            ans.append(DNSRecord(f"{network_name}", RecordType.CNAME,f"{basename}{ZONE_SUFFIX[current_zone]}.{self.domain}.", TTL_NET, comment=self.comment))
+                            ans.append(
+                                DNSRecord(f"{network_name}", RecordType.CNAME,f"{basename}{get_zone_suffix(current_zone)}.{self.domain}.", TTL_NET, comment=self.comment)
+                            )
                     else:
                         current_zone = mid_name.get('current_zone', 0)
                         ans.append(DNSRecord(f"{basename}", RecordType.CNAME, f"{name}.{current_zone}.{self.domain}.", TTL_NET, comment=self.comment))
@@ -126,7 +126,7 @@ class Tetra:
         for i in ans:
             i.assert_valid()
         return ans
-    
+
     def _parse_top_records(self):
         ans = []
         for name in self.config['domains']:

@@ -5,11 +5,13 @@ example.com:
     token: "your_token"  # token for clouflare, secret_id and secret_key for dnspod
   hosts:
     - name: "your_host_name_v0"  # (str) hostname
-      addresses: ["your_host_ip4", "your_host_ip6"]  # (optional[list|str]) addresses
-      ext_addresses: ["your_host_ext_ip4", "your_host_ext_ip6"]  # (optional[list|str]) extended addresses, e.g., proxied or tunnel addresses
+      addresses:  # (optional[dict|list|str]) addresses. if str or list, assuming zone = 0
+        0: ["your_host_ip4", "your_host_ip6"]  # zone 0: native addresses
+        1: ["your_tunnel_ip4", "your_tunnel_ip6"]  # zone 1: proxied or tunnel addresses
+        42: ["your_other_addr"]  # zones id > 9 are custom zones.
       mid_names:  # (list[dict]|list[str]|str) middle-layer name/names. if str, assuming current = false.
-        - name: "the_name"  # (str) middle-layer name. tunnelledif ends with "-v...", it will be treated as a normal presentation name and converted to multiple varied presentations (e.g., "cn0-v0" -> "cn0-v0", "cn0-v0-ext", "cn0-v0-ip4", "cn0-v0-ip6"). otherwise, it will be treated as a network name without any variation.
-          current: true  # (optional) only when presentation name ends with "-v...", it will be treated as the current presentation, e.g., "cn0-v0" -> "cn0".
+        - name: "the_name"  # (str) middle-layer name. if ends with "-v...", it will be treated as a normal presentation name and converted to multiple varied presentations (e.g., "cn0-v0" -> [ "cn0-v0", "cn0-v0-ext", "cn0-v0-ip4", "cn0-v0-ip6", "cn0-v0-42"]). otherwise, it will be treated as a network name without any variation.
+          current: false  # (optional) only when presentation name ends with "-v...", it will be treated as the current presentation, e.g., "cn0-v0" -> "cn0".
           current_zone: 0  # (optional) this defines which variation is used, e.g., setting 4 will use "cn0-v0-ip4" or "xxxxx.0" as the current presentation.
 
 example.net:
