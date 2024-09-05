@@ -36,6 +36,7 @@ class CloudflareClient:
                     name, type, record['content'], record['ttl'], None, record['comment'], record['id']))
         for i in cf_records:
             i.assert_valid()
+        logging.info(f"Got {len(cf_records)} records in total {len(dns_records)} records from Cloudflare")
         return cf_records
 
     def update_records(self, adding, updating, deleting):

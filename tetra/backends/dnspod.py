@@ -26,6 +26,7 @@ class DNSPodClient:
                     record.Name, type, record.Value, record.TTL, None if record.Line == '默认' else record.Line, record.Remark, record.RecordId))
         for i in ans:
             i.assert_valid()
+        logging.info(f"Got {len(ans)} records in total {len(response.RecordList)} records from DNSPod")
         return ans
 
     def update_records(self, adding, updating, deleting):

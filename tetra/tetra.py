@@ -191,6 +191,7 @@ class Tetra:
             pending = self._parse_bottom_records()
         else:
             pending = self._parse_top_records()
+        logging.info(f"Parsed to total {len(pending)} records")
         old = self.backend.get_records()
         adding, updating, deleting = cross_compare(old, pending, args.force)
         # print info
