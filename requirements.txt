@@ -1,4 +1,4 @@
-cloudflare
+cloudflare==2.19.*
 tqdm
 pyyaml
 dnspython
