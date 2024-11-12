@@ -31,7 +31,7 @@ COMMENT_SUFFIX = f' {time.strftime("%Y-%m-%d %H:%M:%S")}'
 COMMENT_B = COMMENT_PREFIX_BOTTOM + COMMENT_SUFFIX
 COMMENT_T = COMMENT_PREFIX_TOP + COMMENT_SUFFIX
 ZONE_SUFFIX = {
-    0: '',
+    0: '-phy',
     1: '-ext',
     4: '-ip4',
     6: '-ip6'
@@ -109,21 +109,23 @@ class Tetra:
                 for mid_name in host['mid_names']:
                     if isinstance(mid_name, str):
                         mid_name = {'name': mid_name, 'current': False}
+                    current_zone = mid_name.get('current_zone', sorted(records)[0])
                     basename = mid_name['name']
+                    ans.append(
+                        DNSRecord(basename, RecordType.CNAME, f"{name}.{current_zone}.{self.domain}.", TTL_NET, comment=self.comment)
+                    )
                     for zone in records:
                         ans.append(
                             DNSRecord(f"{basename}{get_zone_suffix(zone)}", RecordType.CNAME, f"{name}.{zone}.{self.domain}.", TTL_PERMA if '-v' in basename else TTL_NET, comment=self.comment)
                         )
                     if '-v' in basename and mid_name.get('current', False):
-                        current_zone = mid_name.get('current_zone', 0)
                         network_name = basename.split('-v')[0]
                         ans.append(
-                            DNSRecord(f"{network_name}", RecordType.CNAME,f"{basename}{get_zone_suffix(current_zone)}.{self.domain}.", TTL_NET, comment=self.comment)
+                            DNSRecord(network_name, RecordType.CNAME,f"{basename}.{self.domain}.", TTL_NET, comment=self.comment)
                         )
                         for zone in records:
-                            if zone == 0: continue
                             ans.append(
-                                DNSRecord(f"{network_name}{get_zone_suffix(zone)}", RecordType.CNAME, f"{name}.{zone}.{self.domain}.", TTL_NET, comment=self.comment)
+                                DNSRecord(f"{network_name}{get_zone_suffix(zone)}", RecordType.CNAME, f"{basename}{get_zone_suffix(zone)}.{self.domain}.", TTL_NET, comment=self.comment)
                             )
         # add tailing dot for cname
         for record in ans:
