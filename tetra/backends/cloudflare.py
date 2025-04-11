@@ -1,7 +1,7 @@
 import CloudFlare
 import logging
 from tqdm import tqdm
-from dnsutils import DNSRecord, RecordType
+from ..dnsutils import DNSRecord, RecordType
 
 class CloudflareClient:
     def __init__(self, domain: str, auth: dict, prefix: str):

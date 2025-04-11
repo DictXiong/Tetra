@@ -6,11 +6,10 @@ import time
 import logging
 import argparse
 import ipaddress
-from dnsutils import DNSRecord, RecordType, resolve_name_to_template, cross_compare, assert_cname_unique, check_name_exist
+from .dnsutils import DNSRecord, RecordType, resolve_name_to_template, cross_compare, assert_cname_unique, check_name_exist
 
 parser = argparse.ArgumentParser(description='Tetra DNS Record Manager')
-parser.add_argument('--config', help='Path to the configuration file',
-                    default=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.yaml'))
+parser.add_argument('-c', '--config', help='Path to the configuration file')
 parser.add_argument('-d', '--domain', help='Domain to update (all in default)', default=None, action='append')
 parser.add_argument('-D', '--dry-run',
                     help='Do not make any changes', action='store_true')
@@ -54,10 +53,10 @@ class Tetra:
         self.config = config
         logging.warning(f"Initializing Tetra for [{domain}] in [{'bottom' if self.is_bottom else 'top'}] layer ({self.comment})")
         if config['backend'] == 'cloudflare':
-            from backends.cloudflare import CloudflareClient
+            from .backends.cloudflare import CloudflareClient
             self.backend = CloudflareClient(domain, config['auth'], self.prefix)
         else:
-            from backends.dnspod import DNSPodClient
+            from .backends.dnspod import DNSPodClient
             self.backend = DNSPodClient(domain, config['auth'], self.prefix)
 
     def _parse_bottom_records(self):
@@ -78,6 +77,7 @@ class Tetra:
                         addresses = [addresses]
                     if zone < 10 and zone not in [0,1]:
                         logging.fatal(f"special zone {zone} should not be set manually for name {name}")
+                        exit(-1)
                     ttl = TTL_HOST if zone == 0 else TTL_EXT
                     for address in addresses:
                         try: tmp = ipaddress.ip_address(address)
@@ -220,9 +220,11 @@ class Tetra:
             return
         self.backend.update_records(adding, updating, deleting)
 
-
-if __name__ == "__main__":
+def main():
     logging.warning(f'Tetra DNS Client Started')
+    if args.config is None:
+        logging.fatal(f'A config file must be specified by `-c` or `--config`')
+        exit(-1)
     with open(args.config, 'r') as file:
         config_file = yaml.safe_load(file)
     if args.domain:
@@ -231,3 +233,6 @@ if __name__ == "__main__":
     else:
         for domain,config in config_file.items():
             Tetra(domain, config).run()
+
+if __name__ == "__main__":
+    main()

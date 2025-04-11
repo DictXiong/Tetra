@@ -2,7 +2,7 @@ import logging
 from tqdm import tqdm
 from tencentcloud.common import credential
 from tencentcloud.dnspod.v20210323 import dnspod_client, models
-from dnsutils import DNSRecord, RecordType
+from ..dnsutils import DNSRecord, RecordType
 
 
 class DNSPodClient:
