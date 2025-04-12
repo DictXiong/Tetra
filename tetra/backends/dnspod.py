@@ -1,32 +1,55 @@
-import logging
 from tqdm import tqdm
 from tencentcloud.common import credential
 from tencentcloud.dnspod.v20210323 import dnspod_client, models
 from ..dnsutils import DNSRecord, RecordType
 
 
+def get_secret(auth: dict, key):
+    key_file = key + "_file"
+    if key_file in auth:
+        with open(auth[key_file], "r", encoding="utf-8") as f:
+            return f.read().strip()
+    else:
+        return auth[key]
+
+
 class DNSPodClient:
-    def __init__(self, domain: str, auth: dict, prefix: str):
+    def __init__(self, domain: str, auth: dict, prefix: str, logger):
         self.domain = domain
         self.prefix = prefix
-        cred = credential.Credential(auth['secret_id'], auth['secret_key'])
+        self.logger = logger
+        cred = credential.Credential(
+            get_secret(auth, "secret_id"), get_secret(auth, "secret_key")
+        )
         self.client = dnspod_client.DnspodClient(cred, "")
-        logging.debug("DNSPod client initialized")
+        self.logger.debug("DNSPod client initialized")
 
     def get_records(self):
-        logging.debug(f"Getting records for domain {self.domain}")
+        self.logger.debug("Getting records for domain %s", self.domain)
         request = models.DescribeRecordListRequest()
         request.Domain = self.domain
         response = self.client.DescribeRecordList(request)
         ans = []
         for record in response.RecordList:
             if record.Remark and self.prefix in record.Remark:
-                type = RecordType(record.Type)
-                ans.append(DNSRecord(
-                    record.Name, type, record.Value, record.TTL, None if record.Line == '默认' else record.Line, record.Remark, record.RecordId))
+                ans.append(
+                    DNSRecord(
+                        record.Name,
+                        RecordType(record.Type),
+                        record.Value,
+                        record.TTL,
+                        None if record.Line == "默认" else record.Line,
+                        record.Remark,
+                        record.RecordId,
+                    )
+                )
         for i in ans:
             i.assert_valid()
-        logging.info(f"Got {len(ans)} records in total {len(response.RecordList)} records from DNSPod")
+        self.logger.info(
+            "Got %i records in total %i records from DNSPod",
+            len(ans),
+            len(response.RecordList),
+        )
         return ans
 
     def update_records(self, adding, updating, deleting):
@@ -39,7 +62,7 @@ class DNSPodClient:
                 request.RecordId = record.id
                 request.SubDomain = record.name
                 request.RecordType = str(record.type)
-                request.RecordLine = '默认' if record.line is None else record.line
+                request.RecordLine = "默认" if record.line is None else record.line
                 request.Value = record.content
                 request.TTL = record.ttl
                 request.Remark = record.comment
@@ -58,7 +81,7 @@ class DNSPodClient:
                 request.Domain = self.domain
                 request.SubDomain = record.name
                 request.RecordType = str(record.type)
-                request.RecordLine = '默认' if record.line is None else record.line
+                request.RecordLine = "默认" if record.line is None else record.line
                 request.Value = record.content
                 request.TTL = record.ttl
                 request.Remark = record.comment

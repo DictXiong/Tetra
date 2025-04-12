@@ -7,16 +7,18 @@ import dns.rdatatype
 
 
 class RecordType(enum.Enum):
-    A = 'A'
-    AAAA = 'AAAA'
-    CNAME = 'CNAME'
+    A = "A"
+    AAAA = "AAAA"
+    CNAME = "CNAME"
 
     def __str__(self):
         return self.value
 
 
 class DNSRecord:
-    def __init__(self, name, type, content, ttl, line=None, comment=None, id=None) -> None:
+    def __init__(
+        self, name, type, content, ttl, line=None, comment=None, id=None
+    ) -> None:
         self.name = name
         self.type = type
         if self.type == RecordType.AAAA:
@@ -29,12 +31,12 @@ class DNSRecord:
         self.id = id
 
     def assert_valid(self):
-        if self.name.endswith('.'):
+        if self.name.endswith("."):
             raise ValueError("A record name should not end with a dot")
         if self.type == RecordType.CNAME:
-            if self.name == '@':
+            if self.name == "@":
                 raise ValueError("Root CNAME is not allowed")
-            if not self.content.endswith('.'):
+            if not self.content.endswith("."):
                 raise ValueError("CNAME content should end with a dot")
         if self.type == RecordType.A:
             addr = ipaddress.ip_address(self.content)
@@ -46,24 +48,42 @@ class DNSRecord:
                 raise ValueError("Invalid IPv6 address")
 
     def summary(self):
-        return f'{self.name} in {self.type} {self.content}' + (f' [{self.line}]' if self.line else '')
+        return f"{self.name} in {self.type} {self.content}" + (
+            f" [{self.line}]" if self.line else ""
+        )
 
     def __str__(self):
         self.assert_valid()
-        return f'{self.name:23} {self.ttl:5}  IN  {self.type:5} {self.content:39}' + (f' [{self.line}]' if self.line else '') + (f' ; {self.comment}' if self.comment else '')
+        return (
+            f"{self.name:23} {self.ttl:5}  IN  {self.type:5} {self.content:39}"
+            + (f" [{self.line}]" if self.line else "")
+            + (f" ; {self.comment}" if self.comment else "")
+        )
 
     def __eq__(self, __value: object) -> bool:
         if not isinstance(__value, DNSRecord):
-            raise ValueError(f"type {type(self)} could not be compared with {type(__value)}")
-        return self.name == __value.name and self.type == __value.type and self.content == __value.content and self.ttl == __value.ttl and self.line == __value.line
+            raise ValueError(
+                f"type {type(self)} could not be compared with {type(__value)}"
+            )
+        return (
+            self.name == __value.name
+            and self.type == __value.type
+            and self.content == __value.content
+            and self.ttl == __value.ttl
+            and self.line == __value.line
+        )
 
     def sims(self, __value: object) -> bool:
         if not isinstance(__value, DNSRecord):
-            raise ValueError(f"type {type(self)} could not be compared with {type(__value)}")
+            raise ValueError(
+                f"type {type(self)} could not be compared with {type(__value)}"
+            )
         return self.name == __value.name and self.type == __value.type
 
 
-def cross_compare(old_records: list[DNSRecord], pending_records: list[DNSRecord], force: bool=False):
+def cross_compare(
+    old_records: list[DNSRecord], pending_records: list[DNSRecord], force: bool = False
+):
     assert isinstance(old_records, list) and isinstance(pending_records, list)
     old_records = old_records[:]
     pending_records = pending_records[:]
@@ -85,8 +105,11 @@ def cross_compare(old_records: list[DNSRecord], pending_records: list[DNSRecord]
         for i in old_records:
             if record.sims(i):
                 logging.debug(
-                    f"Updating '{record.name}' from '{i.content}' ({type(i.content)}) to '{record.content}' ({type(record.content)})")
-                logging.debug(f"diff: content={record.content==i.content} ttl={record.ttl==i.ttl} line={record.line==i.line}")
+                    f"Updating '{record.name}' from '{i.content}' ({type(i.content)}) to '{record.content}' ({type(record.content)})"
+                )
+                logging.debug(
+                    f"diff: content={record.content==i.content} ttl={record.ttl==i.ttl} line={record.line==i.line}"
+                )
                 record.id = i.id
                 old_records.remove(i)
                 break
@@ -94,7 +117,8 @@ def cross_compare(old_records: list[DNSRecord], pending_records: list[DNSRecord]
     adding_records = [i for i in pending_records if i.id is None]
     updating_records = [i for i in pending_records if i.id is not None]
     deleting_records = [i for i in old_records]
-    return adding_records,updating_records,deleting_records
+    return adding_records, updating_records, deleting_records
+
 
 def resolve_name_to_template(domain: str, template: DNSRecord):
     ans = []
@@ -112,18 +136,23 @@ def resolve_name_to_template(domain: str, template: DNSRecord):
             ans.append(copy.deepcopy(template))
     return ans
 
+
 def assert_cname_unique(records: list[DNSRecord]):
     for i in records:
         if i.type == RecordType.CNAME:
             for j in records:
                 if i.name == j.name and i.line == j.line and i != j:
-                    raise ValueError(f"Duplicate CNAME record {i.summary()} {j.summary()}")
+                    raise ValueError(
+                        f"Duplicate CNAME record {i.summary()} {j.summary()}"
+                    )
+
 
 def check_name_exist(domain: str):
     resolver = dns.resolver.Resolver()
-    try: resolver.resolve_name(domain)
+    try:
+        resolver.resolve_name(domain)
     except dns.resolver.NXDOMAIN:
         return False
-    except Exception as e:
-        logging.warning(f"an error occured when quering {domain}")
+    except Exception:
+        logging.warning("an error occured when quering %s", domain)
     return True
