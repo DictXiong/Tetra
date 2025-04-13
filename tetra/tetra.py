@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import os
 import time
 import logging
 import argparse
@@ -40,7 +41,7 @@ class CustomFormatter(logging.Formatter):
 
 
 parser = argparse.ArgumentParser(description="Tetra DNS Record Manager")
-parser.add_argument("-c", "--config", help="Path to the configuration file")
+parser.add_argument("-c", "--config", default="tetra.yaml", help="Path to the configuration file")
 parser.add_argument(
     "-d",
     "--domain",
@@ -341,8 +342,8 @@ def main():
     ch.setFormatter(CustomFormatter())
     logger.addHandler(ch)
     logger.warning("Tetra DNS Client Started")
-    if args.config is None:
-        logger.fatal("A config file must be specified by `-c` or `--config`")
+    if not os.path.isfile(args.config):
+        logger.fatal("A proper config file must be specified by `-c` or `--config`")
         exit(-1)
     with open(args.config, "r", encoding="utf-8") as file:
         config_file = yaml.safe_load(file)
