@@ -81,6 +81,23 @@ def get_zone_suffix(zone: int):
     raise ValueError(f"Invalid zone {zone}")
 
 
+def read_from_exec(args):
+    try:
+        result = subprocess.run(
+            args,
+            check = True,
+            text = True,
+            capture_output = True
+        )
+        return json.loads(result.stdout)
+    except subprocess.CalledProcessError as e:
+        print("Error executing:", e.stderr)
+        exit(-1)
+    except json.JSONDecodeError as e:
+        print("Error decoding json:", e)
+        exit(-1)
+
+
 class Tetra:
     def __init__(self, domain, config, logger) -> None:
         self.is_bottom = config["layer"] == "bottom"
@@ -101,6 +118,8 @@ class Tetra:
 
     def _parse_bottom_records(self):
         ans = []
+        if "hosts_from_exec" in self.config:
+            self.config["hosts"] = read_from_exec(shlex.split(self.config["hosts_from_exec"])) + self.config.get("hosts", [])
         for host in self.config["hosts"]:
             name = host["name"]
             records = {}
@@ -234,6 +253,8 @@ class Tetra:
     def _parse_top_records(self):
         bottom = self.config.get("bottom", "")
         ans = []
+        if "domains_from_exec" in self.config:
+            self.config["domains"] = read_from_exec(shlex.split(self.config["domains_from_exec"])) + self.config.get("domains", [])
         for name in self.config["domains"]:
             if not isinstance(name["records"], list):
                 name["records"] = [name["records"]]
@@ -304,21 +325,6 @@ class Tetra:
         return ans
 
     def run(self):
-        if "hosts_from_exec" in self.config:
-            try:
-                result = subprocess.run(
-                    shlex.split(self.config["hosts_from_exec"]),
-                    check = True,
-                    text = True,
-                    capture_output = True
-                )
-                self.config["hosts"] = json.loads(result.stdout)
-            except subprocess.CalledProcessError as e:
-                print("Error executing:", e.stderr)
-                exit(-1)
-            except json.JSONDecodeError as e:
-                print("Error decoding json:", e)
-                exit(-1)
         if self.is_bottom:
             pending = self._parse_bottom_records()
         else:
