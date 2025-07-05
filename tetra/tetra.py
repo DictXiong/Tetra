@@ -4,8 +4,11 @@ import os
 import time
 import logging
 import argparse
+import subprocess
+import shlex
 import ipaddress
 import yaml
+import json
 from .dnsutils import (
     DNSRecord,
     RecordType,
@@ -107,7 +110,8 @@ class Tetra:
                 if isinstance(host["addresses"], list):
                     host["addresses"] = {0: host["addresses"]}
                 for zone, addresses in host["addresses"].items():
-                    if addresses is None:
+                    zone = int(zone)
+                    if not addresses:
                         records[zone] = []
                         continue
                     if isinstance(addresses, str):
@@ -300,6 +304,21 @@ class Tetra:
         return ans
 
     def run(self):
+        if "hosts_from_exec" in self.config:
+            try:
+                result = subprocess.run(
+                    shlex.split(self.config["hosts_from_exec"]),
+                    check = True,
+                    text = True,
+                    capture_output = True
+                )
+                self.config["hosts"] = json.loads(result.stdout)
+            except subprocess.CalledProcessError as e:
+                print("Error executing:", e.stderr)
+                exit(-1)
+            except json.JSONDecodeError as e:
+                print("Error decoding json:", e)
+                exit(-1)
         if self.is_bottom:
             pending = self._parse_bottom_records()
         else:
