@@ -7,11 +7,11 @@ from tetra.dnsutils import DNSRecord, RecordType, is_managed_comment
 
 
 class FakePowerDNSClient(PowerDNSClient):
-    def __init__(self, zone):
+    def __init__(self, zone, prefix="TETRAB"):
         super().__init__(
             "bd.dn42",
             {"api_key": "test"},
-            "TETRAB",
+            prefix,
             logging.getLogger("test-powerdns"),
         )
         self.zone = copy.deepcopy(zone)
@@ -51,6 +51,16 @@ class PowerDNSTest(unittest.TestCase):
         self.assertEqual(len(records), 1)
         self.assertEqual(records[0].name, "sir0.42")
         self.assertEqual(records[0].type, RecordType.A)
+
+    def test_get_records_logs_the_managed_layer(self):
+        with self.assertLogs("test-powerdns", level="DEBUG") as logs:
+            FakePowerDNSClient(ZONE).get_records()
+            FakePowerDNSClient(ZONE, prefix="TETRAT").get_records()
+        output = "\n".join(logs.output)
+        self.assertIn("Getting bottom records", output)
+        self.assertIn("Got 1 bottom Tetra records", output)
+        self.assertIn("Getting top records", output)
+        self.assertIn("Got 0 top Tetra records", output)
 
     def test_update_replaces_the_complete_rrset(self):
         client = FakePowerDNSClient(ZONE)

@@ -3,7 +3,7 @@ import logging
 import sys
 import unittest
 
-from tetra.dnsutils import RecordType
+from tetra.dnsutils import DNSRecord, RecordType
 
 sys.argv = ["tetra"]
 from tetra.tetra import Tetra
@@ -112,6 +112,84 @@ class SubdomainTest(unittest.TestCase):
         )
         records = self.client._parse_top_records()
         self.assertEqual({record.name for record in records}, {"generated.i", "manual.i"})
+
+    def test_root_and_subdomain_configs_are_combined(self):
+        config = {
+            "backend": "powerdns",
+            "auth": {"api_key": "test"},
+            "layer": "top",
+            "bottom": "net.bd.dn42",
+            "domains": [{"names": "@", "records": "sir0-v0"}],
+            "subdomains": {
+                "net": {"layer": "bottom", "hosts": []},
+                "i": {"layer": "top", "domains": []},
+            },
+        }
+        client = Tetra("bd.dn42", config, logging.getLogger("test-subdomains"))
+        self.assertEqual(
+            [subdomain for subdomain, _ in client._layer_configs()],
+            [None, "net", "i"],
+        )
+
+    def test_legacy_subdomain_config_does_not_enable_root_scope(self):
+        config = {
+            "backend": "powerdns",
+            "auth": {"api_key": "test"},
+            "subdomains": {
+                "net": {"layer": "bottom", "hosts": []},
+                "i": {"layer": "top", "domains": []},
+            },
+        }
+        client = Tetra("bd.dn42", config, logging.getLogger("test-subdomains"))
+        self.assertEqual(
+            [subdomain for subdomain, _ in client._layer_configs()],
+            ["net", "i"],
+        )
+
+    def test_root_scope_excludes_explicit_subdomains(self):
+        config = {
+            "backend": "powerdns",
+            "auth": {"api_key": "test"},
+            "layer": "top",
+            "domains": [],
+            "subdomains": {
+                "net": {"layer": "bottom", "hosts": []},
+                "i": {"layer": "top", "domains": []},
+            },
+        }
+        client = Tetra("bd.dn42", config, logging.getLogger("test-subdomains"))
+        records = [
+            DNSRecord("@", RecordType.A, "192.0.2.1", 300),
+            DNSRecord("www", RecordType.A, "192.0.2.2", 300),
+            DNSRecord("host.net", RecordType.A, "192.0.2.3", 300),
+            DNSRecord("service.i", RecordType.A, "192.0.2.4", 300),
+        ]
+        self.assertEqual(
+            {record.name for record in client._records_in_scope(records, None)},
+            {"@", "www"},
+        )
+
+    def test_root_records_must_not_overlap_explicit_subdomains(self):
+        config = {
+            "backend": "powerdns",
+            "auth": {"api_key": "test"},
+            "layer": "top",
+            "domains": [{"names": "service.i", "records": "192.0.2.1"}],
+            "subdomains": {"i": {"layer": "top", "domains": []}},
+        }
+        client = Tetra("bd.dn42", config, logging.getLogger("test-subdomains"))
+        with self.assertRaisesRegex(ValueError, "overlaps subdomain scope"):
+            client._parse_subdomain(config, None)
+
+    def test_root_records_require_an_explicit_layer_with_subdomains(self):
+        config = {
+            "backend": "powerdns",
+            "auth": {"api_key": "test"},
+            "domains": [{"names": "@", "records": "192.0.2.1"}],
+            "subdomains": {"i": {"layer": "top", "domains": []}},
+        }
+        with self.assertRaisesRegex(ValueError, "must define layer"):
+            Tetra("bd.dn42", config, logging.getLogger("test-subdomains"))
 
     def test_short_bottom_name_is_rejected(self):
         self.client._set_context(

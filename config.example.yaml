@@ -17,12 +17,17 @@ example.com:
 
 # PowerDNS Authoritative API example:
 # bd.dn42:
+#   layer: "top"
+#   bottom: "net.bd.dn42"
 #   backend: "powerdns"
 #   auth:
 #     api_url: "http://127.0.0.1:8081"
 #     server_id: "localhost"
 #     api_key_file: "/run/secrets/tetra/pdns-api-key"
 #     auto_ttl: 300  # optional: map Tetra's Cloudflare-style automatic TTL (1) to seconds
+#   domains:
+#     - names: "@"
+#       records: "sir0"
 #   subdomains:
 #     net:
 #       layer: "bottom"

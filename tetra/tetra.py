@@ -118,10 +118,26 @@ class Tetra:
             raise ValueError(f"Configuration for {self.domain} must contain an auth mapping")
         if not isinstance(self.subdomains, dict):
             raise ValueError("subdomains must be a mapping")
+        root_record_keys = {
+            "hosts",
+            "hosts_from_exec",
+            "domains",
+            "domains_from_exec",
+        }
+        if (
+            self.subdomains
+            and "layer" not in config
+            and any(key in config for key in root_record_keys)
+        ):
+            raise ValueError(
+                f"domain {self.domain!r} must define layer to manage root records "
+                "together with subdomains"
+            )
+        root_enabled = not self.subdomains or "layer" in config
         self.logger.warning(
             "Initializing Tetra for [%s] with %i layer configuration(s)",
             domain,
-            len(self.subdomains) if self.subdomains else 1,
+            len(self.subdomains) + int(root_enabled),
         )
         normalized_subdomains = {}
         for subdomain, subdomain_config in self.subdomains.items():
@@ -148,7 +164,7 @@ class Tetra:
                         f"Overlapping subdomain scopes are unsafe: {name!r} and {other!r}"
                     )
         self.subdomains = normalized_subdomains
-        if not self.subdomains:
+        if root_enabled:
             self._validate_layer(config, f"domain {self.domain!r}")
 
     @staticmethod
@@ -500,7 +516,55 @@ class Tetra:
             for record in records:
                 if record.ttl == 1:
                     record.ttl = auto_ttl
+        if subdomain is None:
+            for record in records:
+                overlapping = next(
+                    (
+                        name
+                        for name in self.subdomains
+                        if self._name_in_subdomain(record.name, name)
+                    ),
+                    None,
+                )
+                if overlapping is not None:
+                    raise ValueError(
+                        f"Root record {record.name!r} overlaps subdomain scope "
+                        f"{overlapping!r}"
+                    )
         return records
+
+    @staticmethod
+    def _name_in_subdomain(name, subdomain):
+        return name == subdomain or name.endswith(f".{subdomain}")
+
+    def _records_in_scope(self, records, subdomain):
+        """Return records owned by one configured scope.
+
+        An explicit subdomain owns its complete subtree.  When the root domain
+        is enabled alongside subdomains, it owns the remainder of the zone.
+        """
+        if subdomain is not None:
+            return [
+                record
+                for record in records
+                if self._name_in_subdomain(record.name, subdomain)
+            ]
+        return [
+            record
+            for record in records
+            if not any(
+                self._name_in_subdomain(record.name, name)
+                for name in self.subdomains
+            )
+        ]
+
+    def _layer_configs(self):
+        """Return the enabled root and subdomain layer configurations."""
+        configs = []
+        if not self.subdomains or "layer" in self.root_config:
+            configs.append((None, self.root_config))
+        configs.extend(self.subdomains.items())
+        return configs
 
     def _plan_subdomain(self, config, subdomain, pending, old_records):
         self._set_context(config, subdomain)
@@ -510,13 +574,7 @@ class Tetra:
             subdomain or "@",
             self.domain,
         )
-        old = old_records
-        if subdomain is not None:
-            old = [
-                record
-                for record in old
-                if record.name == subdomain or record.name.endswith(f".{subdomain}")
-            ]
+        old = self._records_in_scope(old_records, subdomain)
         adding, updating, deleting = cross_compare(old, pending, args.force)
         self.logger.info("Records to add: (%s)", "none" if not adding else len(adding))
         for record in adding:
@@ -530,9 +588,7 @@ class Tetra:
         return adding, updating, deleting
 
     def run(self):
-        configs = (
-            list(self.subdomains.items()) if self.subdomains else [(None, self.root_config)]
-        )
+        configs = self._layer_configs()
         parsed = []
         self.available_records = []
         for subdomain, config in configs:

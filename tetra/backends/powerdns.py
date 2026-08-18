@@ -8,6 +8,7 @@ from ..dnsutils import DNSRecord, RecordType, is_managed_comment
 
 
 SUPPORTED_TYPES = {RecordType.A, RecordType.AAAA, RecordType.CNAME}
+LAYERS_BY_PREFIX = {"TETRAB": "bottom", "TETRAT": "top"}
 
 
 class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -37,6 +38,7 @@ class PowerDNSClient:
         self.domain = domain.rstrip(".")
         self.zone_name = self.domain + "."
         self.prefix = prefix
+        self.layer = LAYERS_BY_PREFIX.get(prefix, prefix)
         self.logger = logger
         self.api_url = auth.get("api_url", "http://127.0.0.1:8081").rstrip("/")
         parsed_url = urllib.parse.urlsplit(self.api_url)
@@ -186,10 +188,17 @@ class PowerDNSClient:
         return (record.name, record.type.value)
 
     def get_records(self):
-        self.logger.debug("Getting records for domain %s from PowerDNS", self.domain)
+        self.logger.debug(
+            "Getting %s records for domain %s from PowerDNS",
+            self.layer,
+            self.domain,
+        )
         records, _ = self._parse_zone(self._read_zone())
         self.logger.info(
-            "Got %i Tetra records from PowerDNS zone %s", len(records), self.domain
+            "Got %i %s Tetra records from PowerDNS zone %s",
+            len(records),
+            self.layer,
+            self.domain,
         )
         return records
 
