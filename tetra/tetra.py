@@ -9,6 +9,7 @@ import shlex
 import ipaddress
 import yaml
 import json
+import copy
 from .dnsutils import (
     DNSRecord,
     RecordType,
@@ -18,6 +19,7 @@ from .dnsutils import (
 )
 from .backends.cloudflare import CloudflareClient
 from .backends.dnspod import DNSPodClient
+from .backends.powerdns import PowerDNSClient
 
 
 class CustomFormatter(logging.Formatter):
@@ -100,27 +102,176 @@ def read_from_exec(args):
 
 class Tetra:
     def __init__(self, domain, config, logger) -> None:
+        self.domain = self._validate_domain_name(domain, "domain")
+        if not isinstance(config, dict):
+            raise ValueError(f"Configuration for {self.domain} must be a mapping")
+        self.root_config = config
+        self.config = config
+        self.subdomain = None
+        self.subdomains = config.get("subdomains", {})
+        self.available_records = []
+        self.logger = logger
+        backend = config.get("backend")
+        if backend not in ["cloudflare", "dnspod", "powerdns"]:
+            raise ValueError(f"Unsupported Tetra backend: {backend!r}")
+        if not isinstance(config.get("auth"), dict):
+            raise ValueError(f"Configuration for {self.domain} must contain an auth mapping")
+        if not isinstance(self.subdomains, dict):
+            raise ValueError("subdomains must be a mapping")
+        self.logger.warning(
+            "Initializing Tetra for [%s] with %i layer configuration(s)",
+            domain,
+            len(self.subdomains) if self.subdomains else 1,
+        )
+        normalized_subdomains = {}
+        for subdomain, subdomain_config in self.subdomains.items():
+            normalized = self._validate_relative_name(
+                subdomain, "subdomain", allow_root=False
+            )
+            if not isinstance(subdomain_config, dict):
+                raise ValueError(
+                    f"Configuration for subdomain {subdomain!r} must be a mapping"
+                )
+            self._validate_layer(subdomain_config, f"subdomain {subdomain!r}")
+            normalized_subdomains[normalized] = subdomain_config
+        names = list(normalized_subdomains)
+        for index, name in enumerate(names):
+            for other in names[index + 1 :]:
+                same_layer = (
+                    normalized_subdomains[name]["layer"]
+                    == normalized_subdomains[other]["layer"]
+                )
+                if same_layer and (
+                    name.endswith("." + other) or other.endswith("." + name)
+                ):
+                    raise ValueError(
+                        f"Overlapping subdomain scopes are unsafe: {name!r} and {other!r}"
+                    )
+        self.subdomains = normalized_subdomains
+        if not self.subdomains:
+            self._validate_layer(config, f"domain {self.domain!r}")
+
+    @staticmethod
+    def _validate_layer(config, location):
+        if config.get("layer") not in {"bottom", "top"}:
+            raise ValueError(f"{location} layer must be 'bottom' or 'top'")
+
+    @staticmethod
+    def _validate_relative_name(name, field, allow_root=True):
+        if not isinstance(name, str) or not name:
+            raise ValueError(f"{field} must be a non-empty relative DNS name")
+        if name == "@":
+            if allow_root:
+                return name
+            raise ValueError(f"{field} cannot be the zone root")
+        if name.startswith(".") or name.endswith(".") or ".." in name:
+            raise ValueError(f"{field} must be a relative DNS name, got {name!r}")
+        encoded_length = 0
+        for label in name.split("."):
+            try:
+                encoded = label.encode("idna")
+            except UnicodeError as error:
+                raise ValueError(f"Invalid {field} label {label!r}") from error
+            if len(encoded) > 63:
+                raise ValueError(f"{field} label is longer than 63 bytes: {label!r}")
+            encoded_length += len(encoded) + 1
+        if encoded_length > 254:
+            raise ValueError(f"{field} is longer than 253 bytes")
+        return name
+
+    @classmethod
+    def _validate_domain_name(cls, name, field):
+        if not isinstance(name, str):
+            raise ValueError(f"{field} must be a DNS name")
+        normalized = name.rstrip(".")
+        cls._validate_relative_name(normalized, field, allow_root=False)
+        if "." not in normalized:
+            raise ValueError(f"{field} must be a complete domain name, got {name!r}")
+        return normalized
+
+    def _make_backend(self):
+        auth = self.root_config["auth"]
+        backend = self.root_config["backend"]
+        if backend == "cloudflare":
+            return CloudflareClient(self.domain, auth, self.prefix, self.logger)
+        if backend == "dnspod":
+            return DNSPodClient(self.domain, auth, self.prefix, self.logger)
+        return PowerDNSClient(self.domain, auth, self.prefix, self.logger)
+
+    def _set_context(self, config, subdomain):
+        self._validate_layer(
+            config, f"subdomain {subdomain!r}" if subdomain else "domain"
+        )
+        self.config = config
+        self.subdomain = subdomain
         self.is_bottom = config["layer"] == "bottom"
         self.prefix = COMMENT_PREFIX_BOTTOM if self.is_bottom else COMMENT_PREFIX_TOP
         self.comment = COMMENT_B if self.is_bottom else COMMENT_T
-        self.domain = domain
-        self.config = config
-        self.logger = logger
-        self.logger.warning(
-            f"Initializing Tetra for [%s] in [{'bottom' if self.is_bottom else 'top'}] layer (%s)",
-            domain,
-            self.comment,
-        )
-        if config["backend"] == "cloudflare":
-            self.backend = CloudflareClient(domain, config["auth"], self.prefix, self.logger)
-        else:
-            self.backend = DNSPodClient(domain, config["auth"], self.prefix, self.logger)
+
+    def _qualify_name(self, name):
+        name = self._validate_relative_name(name, "record name")
+        if self.subdomain is None:
+            return name
+        if name == "@":
+            return self.subdomain
+        return f"{name}.{self.subdomain}"
+
+    def _fqdn(self, name):
+        if name == "@":
+            return self.domain + "."
+        self._validate_relative_name(name, "record name", allow_root=False)
+        return f"{name.rstrip('.')}.{self.domain}."
+
+    def _config_entries(self, config, key):
+        """Return generated entries followed by entries written in config.
+
+        Both the legacy top-level domain configuration and each subdomain use
+        this same merge rule.  Keep the static entries last so they retain the
+        existing ordering and can be used for small local overrides/additions.
+        """
+        generated = []
+        source = config.get(f"{key}_from_exec")
+        if source:
+            generated = read_from_exec(shlex.split(source))
+        configured = config.get(key, [])
+        if configured is None:
+            configured = []
+        if not isinstance(generated, list) or not isinstance(configured, list):
+            raise ValueError(f"{key} and {key}_from_exec must produce lists")
+        return copy.deepcopy(generated + configured)
+
+    def _resolve_name_to_template(self, domain, template):
+        target = domain.rstrip(".")
+
+        def resolve(name, visited):
+            if name in visited:
+                raise ValueError(f"CNAME loop while resolving {domain}")
+            visited = visited | {name}
+            records = [
+                record
+                for record in self.available_records
+                if self._fqdn(record.name).rstrip(".") == name
+            ]
+            resolved = []
+            for record in records:
+                if record.type in [RecordType.A, RecordType.AAAA]:
+                    item = copy.deepcopy(template)
+                    item.type = record.type
+                    item.content = record.content
+                    resolved.append(item)
+                elif record.type == RecordType.CNAME:
+                    resolved += resolve(record.content.rstrip("."), visited)
+            return resolved
+
+        if self.available_records:
+            local = resolve(target, set())
+            if local:
+                return local
+        return resolve_name_to_template(domain, template)
 
     def _parse_bottom_records(self):
         ans = []
-        if "hosts_from_exec" in self.config:
-            self.config["hosts"] = read_from_exec(shlex.split(self.config["hosts_from_exec"])) + self.config.get("hosts", [])
-        for host in self.config["hosts"]:
+        for host in self._config_entries(self.config, "hosts"):
             name = host["name"]
             records = {}
             if "addresses" in host:
@@ -160,7 +311,7 @@ class Tetra:
                                     records[z] = []
                                 records[z].append(
                                     DNSRecord(
-                                        f"{name}.{z}",
+                                        self._qualify_name(f"{name}.{z}"),
                                         RecordType.A,
                                         address,
                                         ttl,
@@ -177,7 +328,7 @@ class Tetra:
                                     records[z] = []
                                 records[z].append(
                                     DNSRecord(
-                                        f"{name}.{z}",
+                                        self._qualify_name(f"{name}.{z}"),
                                         RecordType.AAAA,
                                         address,
                                         ttl,
@@ -202,9 +353,9 @@ class Tetra:
                     basename = mid_name["name"]
                     ans.append(
                         DNSRecord(
-                            basename,
+                            self._qualify_name(basename),
                             RecordType.CNAME,
-                            f"{name}.{current_zone}.{self.domain}.",
+                            self._fqdn(self._qualify_name(f"{name}.{current_zone}")),
                             TTL_NET,
                             comment=self.comment,
                         )
@@ -212,9 +363,9 @@ class Tetra:
                     for zone in records:
                         ans.append(
                             DNSRecord(
-                                f"{basename}{get_zone_suffix(zone)}",
+                                self._qualify_name(f"{basename}{get_zone_suffix(zone)}"),
                                 RecordType.CNAME,
-                                f"{name}.{zone}.{self.domain}.",
+                                self._fqdn(self._qualify_name(f"{name}.{zone}")),
                                 TTL_PERMA if "-v" in basename else TTL_NET,
                                 comment=self.comment,
                             )
@@ -223,9 +374,9 @@ class Tetra:
                         network_name = basename.split("-v")[0]
                         ans.append(
                             DNSRecord(
-                                network_name,
+                                self._qualify_name(network_name),
                                 RecordType.CNAME,
-                                f"{basename}.{self.domain}.",
+                                self._fqdn(self._qualify_name(basename)),
                                 TTL_NET,
                                 comment=self.comment,
                             )
@@ -233,9 +384,11 @@ class Tetra:
                         for zone in records:
                             ans.append(
                                 DNSRecord(
-                                    f"{network_name}{get_zone_suffix(zone)}",
+                                    self._qualify_name(f"{network_name}{get_zone_suffix(zone)}"),
                                     RecordType.CNAME,
-                                    f"{basename}{get_zone_suffix(zone)}.{self.domain}.",
+                                    self._fqdn(
+                                        self._qualify_name(f"{basename}{get_zone_suffix(zone)}")
+                                    ),
                                     TTL_NET,
                                     comment=self.comment,
                                 )
@@ -251,11 +404,11 @@ class Tetra:
         return ans
 
     def _parse_top_records(self):
-        bottom = self.config.get("bottom", "")
+        bottom = self.config.get("bottom", "").rstrip(".")
+        if bottom:
+            bottom = self._validate_domain_name(bottom, "top-layer bottom")
         ans = []
-        if "domains_from_exec" in self.config:
-            self.config["domains"] = read_from_exec(shlex.split(self.config["domains_from_exec"])) + self.config.get("domains", [])
-        for name in self.config["domains"]:
+        for name in self._config_entries(self.config, "domains"):
             if not isinstance(name["records"], list):
                 name["records"] = [name["records"]]
             if not isinstance(name["names"], list):
@@ -275,12 +428,14 @@ class Tetra:
                     )
                 except ValueError:
                     record_type = RecordType.CNAME
-                    if not value.endswith(".") and not value.endswith(bottom):
-                        value += f".{bottom}"
+                    if not value.endswith("."):
+                        if bottom and value != bottom and not value.endswith("." + bottom):
+                            value += f".{bottom}"
+                        value += "."
                 for i in name["names"]:
                     ans.append(
                         DNSRecord(
-                            i,
+                            self._qualify_name(i),
                             record_type,
                             value,
                             TTL_TOP,
@@ -294,9 +449,9 @@ class Tetra:
             for cname in cnamed_by:
                 ans.append(
                     DNSRecord(
-                        cname,
+                        self._qualify_name(cname),
                         RecordType.CNAME,
-                        f"{name['names'][0]}.{self.domain}.",
+                        self._fqdn(self._qualify_name(name["names"][0])),
                         TTL_TOP,
                         None,
                         self.comment,
@@ -306,14 +461,15 @@ class Tetra:
         # flatten cname on root
         root_cname = []
         root_cname_indeices = []
+        root_name = self._qualify_name("@")
         for index, record in enumerate(ans):
-            if record.type == RecordType.CNAME and record.name == "@":
+            if record.type == RecordType.CNAME and record.name == root_name:
                 root_cname.append(record)
                 root_cname_indeices.append(index)
         for i in reversed(root_cname_indeices):
             del ans[i]
         for record in root_cname:
-            ans += resolve_name_to_template(record.content, record)
+            ans += self._resolve_name_to_template(record.content, record)
         # add tailing dot for cname
         for record in ans:
             if record.type == RecordType.CNAME and not record.content.endswith("."):
@@ -324,29 +480,92 @@ class Tetra:
             i.assert_valid()
         return ans
 
-    def run(self):
-        if self.is_bottom:
-            pending = self._parse_bottom_records()
-        else:
-            pending = self._parse_top_records()
-        self.logger.info("Parsed to total %i records", len(pending))
-        old = self.backend.get_records()
+    def _parse_subdomain(self, config, subdomain):
+        self._set_context(config, subdomain)
+        records = (
+            self._parse_bottom_records()
+            if self.is_bottom
+            else self._parse_top_records()
+        )
+        if self.root_config["backend"] == "powerdns":
+            if any(record.line is not None for record in records):
+                raise ValueError("PowerDNS backend does not support line-specific records")
+            auto_ttl = self.root_config["auth"].get("auto_ttl", 300)
+            if (
+                not isinstance(auto_ttl, int)
+                or isinstance(auto_ttl, bool)
+                or auto_ttl <= 0
+            ):
+                raise ValueError("PowerDNS auto_ttl must be a positive integer")
+            for record in records:
+                if record.ttl == 1:
+                    record.ttl = auto_ttl
+        return records
+
+    def _plan_subdomain(self, config, subdomain, pending, old_records):
+        self._set_context(config, subdomain)
+        self.logger.info(
+            "Parsed %i records for %s.%s",
+            len(pending),
+            subdomain or "@",
+            self.domain,
+        )
+        old = old_records
+        if subdomain is not None:
+            old = [
+                record
+                for record in old
+                if record.name == subdomain or record.name.endswith(f".{subdomain}")
+            ]
         adding, updating, deleting = cross_compare(old, pending, args.force)
-        # print info
         self.logger.info("Records to add: (%s)", "none" if not adding else len(adding))
-        for i in adding:
-            print(i)
-        self.logger.info(
-            "Records to update: (%s)", "none" if not updating else len(updating)
+        for record in adding:
+            print(record)
+        self.logger.info("Records to update: (%s)", "none" if not updating else len(updating))
+        for record in updating:
+            print(record)
+        self.logger.info("Records to delete: (%s)", "none" if not deleting else len(deleting))
+        for record in deleting:
+            print(record)
+        return adding, updating, deleting
+
+    def run(self):
+        configs = (
+            list(self.subdomains.items()) if self.subdomains else [(None, self.root_config)]
         )
-        for i in updating:
-            print(i)
-        self.logger.info(
-            "Records to delete: (%s)", "none" if not deleting else len(deleting)
-        )
-        for i in deleting:
-            print(i)
-        if not adding and not updating and not deleting:
+        parsed = []
+        self.available_records = []
+        for subdomain, config in configs:
+            if config["layer"] == "bottom":
+                pending = self._parse_subdomain(config, subdomain)
+                self.available_records += pending
+                parsed.append((subdomain, config, pending))
+        for subdomain, config in configs:
+            if config["layer"] != "bottom":
+                pending = self._parse_subdomain(config, subdomain)
+                parsed.append((subdomain, config, pending))
+        backend_cache = {}
+        old_records_cache = {}
+        changes = {}
+        for subdomain, config, pending in parsed:
+            self._set_context(config, subdomain)
+            backend = backend_cache.get(self.prefix)
+            if backend is None:
+                backend = self._make_backend()
+                backend_cache[self.prefix] = backend
+                old_records_cache[self.prefix] = backend.get_records()
+            adding, updating, deleting = self._plan_subdomain(
+                config,
+                subdomain,
+                pending,
+                old_records_cache[self.prefix],
+            )
+            if adding or updating or deleting:
+                combined = changes.setdefault(backend, [[], [], []])
+                combined[0].extend(adding)
+                combined[1].extend(updating)
+                combined[2].extend(deleting)
+        if not changes:
             self.logger.warning("No changes to be made")
             return
         if args.dry_run:
@@ -355,7 +574,8 @@ class Tetra:
         print("Do you want to continue? [y/N]", end=" ")
         if input().lower() != "y":
             return
-        self.backend.update_records(adding, updating, deleting)
+        for backend, (adding, updating, deleting) in changes.items():
+            backend.update_records(adding, updating, deleting)
 
 
 def main():

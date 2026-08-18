@@ -1,6 +1,6 @@
 example.com:
   layer: "bottom"  # (str) "bottom"|"top"
-  backend: "cloudflare"  # (str) "cloudflare"|"dnspod"
+  backend: "cloudflare"  # (str) "cloudflare"|"dnspod"|"powerdns"
   auth:
     token: "your_token"  # token for clouflare, secret_id and secret_key for dnspod
   hosts:
@@ -14,6 +14,26 @@ example.com:
         - name: "the_name"  # (str) middle-layer name. if ends with "-v...", it will be treated as a normal presentation name and converted to multiple varied presentations (e.g., "cn0-v0" -> [ "cn0-v0", "cn0-v0-ext", "cn0-v0-ip4", "cn0-v0-ip6", "cn0-v0-42"]). otherwise, it will be treated as a network name without any variation.
           current: false  # (optional) only when presentation name ends with "-v...", it will be treated as the current presentation, e.g., "cn0-v0" -> "cn0".
           current_zone: 0  # (optional) this defines which variation is used, e.g., setting 4 will use "cn0-v0-ip4" or "xxxxx.0" as the current presentation.
+
+# PowerDNS Authoritative API example:
+# bd.dn42:
+#   backend: "powerdns"
+#   auth:
+#     api_url: "http://127.0.0.1:8081"
+#     server_id: "localhost"
+#     api_key_file: "/run/secrets/tetra/pdns-api-key"
+#     auto_ttl: 300  # optional: map Tetra's Cloudflare-style automatic TTL (1) to seconds
+#   subdomains:
+#     net:
+#       layer: "bottom"
+#       hosts_from_exec: nix eval '/root/NixOS-Config#tetraConfigurations.dxng' --json
+#     i:
+#       layer: "top"
+#       bottom: "net.bd.dn42"
+#       domains_from_exec: nix eval '/root/NixOS-Config#tetraConfigurations.ibd' --json
+#       domains:
+#         - names: "manual"
+#           records: "sir0-v0"
 
 example.net:
   layer: "top"

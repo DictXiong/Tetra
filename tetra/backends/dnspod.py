@@ -1,7 +1,7 @@
 from tqdm import tqdm
 from tencentcloud.common import credential
 from tencentcloud.dnspod.v20210323 import dnspod_client, models
-from ..dnsutils import DNSRecord, RecordType
+from ..dnsutils import DNSRecord, RecordType, is_managed_comment
 
 
 def get_secret(auth: dict, key):
@@ -31,7 +31,7 @@ class DNSPodClient:
         response = self.client.DescribeRecordList(request)
         ans = []
         for record in response.RecordList:
-            if record.Remark and self.prefix in record.Remark:
+            if is_managed_comment(record.Remark, self.prefix):
                 ans.append(
                     DNSRecord(
                         record.Name,

@@ -1,6 +1,6 @@
 import cloudflare
 from tqdm import tqdm
-from ..dnsutils import DNSRecord, RecordType
+from ..dnsutils import DNSRecord, RecordType, is_managed_comment
 
 
 class CloudflareClient:
@@ -33,7 +33,7 @@ class CloudflareClient:
         cf_records = []
         for record in dns_records:
             len_dns_records += 1
-            if record.comment and self.prefix in record.comment:
+            if is_managed_comment(record.comment, self.prefix):
                 record_type = RecordType(record.type)
                 if record_type == RecordType.CNAME and not record.content.endswith("."):
                     record.content += "."

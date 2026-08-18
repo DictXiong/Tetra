@@ -15,6 +15,11 @@ class RecordType(enum.Enum):
         return self.value
 
 
+def is_managed_comment(comment, prefix: str) -> bool:
+    """Return whether a comment contains an exact Tetra ownership marker."""
+    return bool(comment) and (comment == prefix or comment.startswith(prefix + " "))
+
+
 class DNSRecord:
     def __init__(
         self, name, type, content, ttl, line=None, comment=None, id=None
