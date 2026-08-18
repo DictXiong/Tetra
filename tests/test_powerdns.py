@@ -105,6 +105,9 @@ class PowerDNSTest(unittest.TestCase):
         self.assertIn(
             {"content": "operator note", "account": "admin"}, first_comments
         )
+        self.assertIn(
+            {"content": "TETRAB managed", "account": ""}, first_comments
+        )
 
     def test_similar_comment_does_not_claim_ownership(self):
         self.assertFalse(is_managed_comment("NOT-TETRAB managed", "TETRAB"))

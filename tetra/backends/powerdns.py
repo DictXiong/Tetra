@@ -229,7 +229,10 @@ class PowerDNSClient:
                     if isinstance(item, dict) and item.get("account") is not None:
                         preserved["account"] = item["account"]
                     comments.append(preserved)
-            comments.append({"content": comment})
+            # PowerDNS requires `account` to be a string for every comment.
+            # An empty account keeps Tetra-owned comments unassociated with
+            # any PowerDNS account while satisfying the RRset schema.
+            comments.append({"content": comment, "account": ""})
             rrset["comments"] = comments
         return rrset
 
